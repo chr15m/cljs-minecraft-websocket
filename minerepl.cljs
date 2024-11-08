@@ -4,38 +4,8 @@
     [applied-science.js-interop :as j]
     ["node-watch$default" :as watch]
     ["ws" :as ws]
-    [nbb.core :refer [load-file *file*]]))
-
-(defonce connections
-  (atom #{}))
-
-(print (count @connections) "connections")
-
-(defn socket-send [socket packet]
-  (->> packet
-       clj->js
-       js/JSON.stringify
-       (.send socket)))
-
-(defn command-packet [command]
-  {:header {:version 1
-            :requestId (str (random-uuid))
-            :messagePurpose "commandRequest"
-            :messageType "commandRequest"}
-   :body {:version 1
-          :commandLine command
-          :origin {:type "player"}}})
-
-(defn send-command [& command]
-  (doseq [socket @connections]
-    (socket-send socket (command-packet (apply str command)))))
-
-(doseq [x (range 10)
-        z (range 10)
-        y [3]]
-  (send-command "setblock ~" x " ~" z "~" y " emerald_block"))
-
-; (send-command "setblock ~2 ~2 ~2 emerald_block")
+    [nbb.core :refer [load-file *file*]]
+    [common :refer [connections]]))
 
 (defn subscribe-to-events [socket event-name]
   (->>
@@ -95,9 +65,10 @@
            (socket-connection socket)))))
 
 (defonce watcher
-  (watch *file* (fn [_event-type filename]
-                  (js/console.log "Reloading" filename)
-                  (load-file filename))))
+  (watch #js [*file* "sandbox.cljs"]
+         (fn [_event-type filename]
+           (js/console.log "Reloading" filename)
+           (load-file filename))))
 
 (defonce handle-error
   (.on js/process "uncaughtException"

@@ -13,7 +13,7 @@ Connect from Minecraft (bedrock edition) in chat on your device:
 /connect IP-ADDRESS:3000
 ```
 
-Then edit `minerepl.cljs` to add lines like this:
+Then edit `sandbox.cljs` to add lines like this:
 
 ```clojure
 (send-command "setblock ~2 ~2 ~2 emerald_block")
