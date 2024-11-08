@@ -26,9 +26,14 @@
           :commandLine command
           :origin {:type "player"}}})
 
-(defn send-command [command]
+(defn send-command [& command]
   (doseq [socket @connections]
-    (socket-send socket (command-packet command))))
+    (socket-send socket (command-packet (apply str command)))))
+
+(doseq [x (range 10)
+        z (range 10)
+        y [3]]
+  (send-command "setblock ~" x " ~" z "~" y " emerald_block"))
 
 ; (send-command "setblock ~2 ~2 ~2 emerald_block")
 
