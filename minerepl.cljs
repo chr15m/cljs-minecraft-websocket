@@ -1,5 +1,6 @@
 (ns minerepl
   (:require
+    ["os" :as os]
     [applied-science.js-interop :as j]
     ["node-watch$default" :as watch]
     ["ws" :as ws]
@@ -50,9 +51,18 @@
   (subscribe-to-events socket "PlayerMessage")
   (subscribe-to-events socket "BlockPlaced"))
 
+(defn get-local-ip-addresses []
+  (let [interfaces (os/networkInterfaces)]
+    (for [[_ infos] (js/Object.entries interfaces)
+          info infos
+          :when (= (.-family info) "IPv4")]
+      (.-address info))))
+
 (defonce websocket-server
   (let [server (ws/WebSocketServer. #js {:port 3000})]
-    (js/console.log "Server created on port 3000")
+    (js/console.log "Listening on:")
+    (doseq [ip (reverse (sort-by count (get-local-ip-addresses)))]
+      (js/console.log (str "\t" ip ":3000")))
     (.on server "connection"
          (fn [socket]
            (swap! connections conj socket)
