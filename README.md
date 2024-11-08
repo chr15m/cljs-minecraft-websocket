@@ -1,3 +1,5 @@
+![Screenshot of a procedurally generated emerald wall](./screenshot.png)
+
 Start the server:
 
 ```
