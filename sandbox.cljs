@@ -25,6 +25,16 @@
     (doseq [z (range 10)]
       (send-command "setblock ~" 2 " ~" z "~" 0 " emerald_block"))))
 
+; if the player types a chat message "hole"
+(on-message
+  "hole"
+  (fn []
+    ; dig a big hole
+    (doseq [x (range -2 3)
+            y (range -2 3)
+            z (range 0 -11 -1)]
+      (send-command "setblock ~" x " ~" z " ~" y " minecraft:air destroy"))))
+
 ; if the player places a block
 (on "BlockPlaced"
     (fn [payload]
