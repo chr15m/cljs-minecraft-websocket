@@ -65,7 +65,7 @@
            (socket-connection socket)))))
 
 (defonce watcher
-  (watch #js [*file* "sandbox.cljs"]
+  (watch #js [*file* "../sandbox.cljs"]
          (fn [_event-type filename]
            (js/console.log "Reloading" filename)
            (load-file filename))))
