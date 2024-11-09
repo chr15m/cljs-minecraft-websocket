@@ -3,6 +3,9 @@
 (defonce connections
   (atom #{}))
 
+(defonce callbacks
+  (atom {}))
+
 (defn socket-send [socket packet]
   (->> packet
        clj->js
@@ -21,3 +24,6 @@
 (defn send-command [& command]
   (doseq [socket @connections]
     (socket-send socket (command-packet (apply str command)))))
+
+(defn on [event-name callback]
+  (swap! callbacks assoc event-name callback))

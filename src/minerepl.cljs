@@ -5,7 +5,7 @@
     ["node-watch$default" :as watch]
     ["ws" :as ws]
     [nbb.core :refer [load-file *file*]]
-    [common :refer [connections]]))
+    [common :refer [connections callbacks]]))
 
 (defn subscribe-to-events [socket event-name]
   (->>
@@ -20,8 +20,12 @@
     (.send socket)))
 
 (defn socket-message
-  [_socket packet]
-  (js/console.log "packet" (js/JSON.parse packet)))
+  [socket packet]
+  (let [payload (js/JSON.parse packet)
+        event-name (j/get-in payload [:header :eventName])
+        callback (get @callbacks event-name)]
+    (js/console.log payload)
+    (when callback (callback socket payload))))
 
 (defn socket-error
   [_socket error]
