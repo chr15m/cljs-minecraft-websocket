@@ -4,7 +4,8 @@
   (atom #{}))
 
 (defonce callbacks
-  (atom {}))
+  (atom {:event {}
+         :message {}}))
 
 (defn socket-send [socket packet]
   (->> packet
@@ -26,4 +27,7 @@
     (socket-send socket (command-packet (apply str command)))))
 
 (defn on [event-name callback]
-  (swap! callbacks assoc event-name callback))
+  (swap! callbacks assoc-in [:event event-name] callback))
+
+(defn on-message [first-word callback]
+  (swap! callbacks assoc-in [:message first-word] callback))

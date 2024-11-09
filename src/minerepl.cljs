@@ -20,12 +20,23 @@
     (.send socket)))
 
 (defn socket-message
-  [socket packet]
+  [_socket packet]
   (let [payload (js/JSON.parse packet)
         event-name (j/get-in payload [:header :eventName])
-        callback (get @callbacks event-name)]
-    (js/console.log payload)
-    (when callback (callback socket payload))))
+        message (j/get-in payload [:body :message])
+        message-to (j/get-in payload [:body :receiver])
+        callback (get-in @callbacks [:event event-name])]
+    (js/console.log "socket-message" payload)
+    ; handle event callbacks
+    (when callback (callback payload))
+    ; handle player message callbacks
+    (when (= event-name "PlayerMessage")
+      (and message (= message-to "")) ; broadcasted chat message
+      (let [message-parts (.split message " ")
+            first-word (first message-parts)
+            message-callback (get-in @callbacks [:message first-word])]
+        (when message-callback
+          (message-callback message-parts payload))))))
 
 (defn socket-error
   [_socket error]
