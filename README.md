@@ -1,10 +1,10 @@
 ![Screenshot of a procedurally generated emerald wall](./src/screenshot.png)
 
-[Instructions](#instructions) | [API](#api) | [Resources](#resources)
-
 This is a live-reloading ClojureScript websocket server for scripting Minecraft Bedrock edition.
 
 [Here's a video showing how it works](https://www.youtube.com/watch?v=2iESpEnju1o).
+
+[Instructions](#instructions) | [API](#api) | [Resources](#resources)
 
 # Instructions
 
