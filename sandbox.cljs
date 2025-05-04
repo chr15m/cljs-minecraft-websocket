@@ -1,9 +1,15 @@
 (ns sandbox
+  {:clj-kondo/config '{:lint-as {promesa.core/let clojure.core/let}}}
   (:require
-    [common :refer [send-command on on-message]]))
+    [common :refer [send-command on on-message]]
+    [promesa.core :as p]))
 
 ; create an emerald block 2 blocks away from the player
 ; (send-command "setblock ~2 ~2 ~2 emerald_block")
+
+; Example using promesa to wait for the command response
+#_ (p/let [response (send-command "setblock ~2 ~0 ~2 minecraft:cobblestone")]
+     (js/console.log "Cobblestone command response:" response))
 
 ; draw a wall of emeralds near the player
 #_ (doseq [x (range 10)

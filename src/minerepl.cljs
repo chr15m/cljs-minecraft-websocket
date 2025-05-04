@@ -5,7 +5,8 @@
     ["node-watch$default" :as watch]
     ["ws" :as ws]
     [nbb.core :refer [load-file *file*]]
-    [common :refer [connections callbacks]]))
+    ; Require pending-requests atom from common
+    [common :refer [connections callbacks pending-requests]]))
 
 (defn subscribe-to-events [socket event-name]
   (->>
@@ -22,21 +23,40 @@
 (defn socket-message
   [_socket packet]
   (let [payload (js/JSON.parse packet)
-        event-name (j/get-in payload [:header :eventName])
-        message (j/get-in payload [:body :message])
-        message-to (j/get-in payload [:body :receiver])
-        callback (get-in @callbacks [:event event-name])]
+        header (j/get payload :header)
+        message-purpose (j/get header :messagePurpose)
+        request-id (j/get header :requestId)]
+
     (js/console.log "socket-message" payload)
-    ; handle event callbacks
-    (when callback (callback payload))
-    ; handle player message callbacks
-    (when (= event-name "PlayerMessage")
-      (and message (= message-to "")) ; broadcasted chat message
-      (let [message-parts (.split message " ")
-            first-word (first message-parts)
-            message-callback (get-in @callbacks [:message first-word])]
-        (when message-callback
-          (message-callback message-parts payload))))))
+
+    ; Check if it's a response to a command we sent
+    (if (= message-purpose "commandResponse")
+      (when-let [pending (get @pending-requests request-id)]
+        ; Found a matching pending request
+        ;(js/console.log "Resolving request:" request-id)
+        (let [response-body (j/get payload :body)] ; <-- Extract body
+          ; Log the body right before resolving
+          ;(js/console.log "Value passed to resolve:" response-body) ; <-- Add log
+          ; TODO: Clear any timeout associated with this request-id
+          ((:resolve pending) response-body) ; <-- Resolve with extracted body
+          (swap! pending-requests dissoc request-id))) ; Clean up
+      ; Otherwise, handle it as an event or player message
+      (let [event-name (j/get header :eventName)
+            message (j/get-in payload [:body :message])
+            message-to (j/get-in payload [:body :receiver])
+            event-callback (get-in @callbacks [:event event-name])]
+        ; handle event callbacks
+        (when event-callback (event-callback payload))
+        ; handle player message callbacks
+        (when (and (= event-name "PlayerMessage")
+                   message
+                   (= message-to "")) ; broadcasted chat message
+          (let [message-parts (.split message " ")
+                first-word (first message-parts)
+                message-callback (get-in @callbacks [:message first-word])]
+            (when message-callback
+              (message-callback message-parts payload))))))))
+
 
 (defn socket-error
   [_socket error]
