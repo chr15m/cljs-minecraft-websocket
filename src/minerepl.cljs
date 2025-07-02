@@ -109,3 +109,41 @@
   (.on js/process "uncaughtException"
        (fn [error]
          (js/console.error error))))
+
+(when (some #(= "--repl" %) (.-argv js/process))
+  (let [readline (js/require "readline")
+        rl (.createInterface readline #js {:input js/process.stdin
+                                           :output js/process.stdout
+                                           :prompt "minerepl> "})
+        send-command-and-wait (fn [cmd]
+                                (if-let [socket (first @connections)]
+                                  (let [request-id (str (random-uuid))]
+                                    (js/Promise.
+                                     (fn [resolve reject]
+                                       (swap! pending-requests assoc request-id {:resolve resolve :reject reject})
+                                       (let [request-body
+                                             (j/lit {:header {:version 1
+                                                              :requestId request-id
+                                                              :messageType "commandRequest"
+                                                              :messagePurpose "commandRequest"}
+                                                     :body {:commandLine cmd
+                                                            :version 1}})]
+                                         (.send socket (js/JSON.stringify request-body))))))
+                                  (js/Promise.resolve #js {:statusCode -1
+                                                           :statusMessage "No client connected."})))]
+
+    (js/console.log "Starting Minecraft REPL. Type a command and press enter. Press Ctrl+D to exit.")
+    (.prompt rl)
+    (.on rl "line"
+         (fn [line]
+           (let [trimmed (.trim line)]
+             (if (not= "" trimmed)
+               (-> (send-command-and-wait trimmed)
+                   (.then (fn [response]
+                            (js/console.log (js/JSON.stringify response nil 2))
+                            (.prompt rl)))
+                   (.catch (fn [err]
+                             (js/console.error "Error:" err)
+                             (.prompt rl))))
+               (.prompt rl)))))
+    (.on rl "close" (fn [] (.exit js/process 0)))))
