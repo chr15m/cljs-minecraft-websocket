@@ -1,12 +1,13 @@
 (ns minerepl
   (:require
     ["os" :as os]
+    [clojure.string :as string]
+    [clojure.tools.cli :as cli]
     [applied-science.js-interop :as j]
     ["node-watch$default" :as watch]
     ["ws" :as ws]
     [nbb.core :refer [load-file *file*]]
-    ; Require pending-requests atom from common
-    [common :refer [connections callbacks pending-requests]]))
+    [common :refer [connections callbacks pending-requests get-args]]))
 
 (defn subscribe-to-events [socket event-name]
   (->>
@@ -89,8 +90,25 @@
           :when (= (.-family info) "IPv4")]
       (.-address info))))
 
+(defn send-command-and-wait [cmd]
+  (if-let [socket (first @connections)]
+    (let [request-id (str (random-uuid))]
+      (js/Promise.
+       (fn [resolve reject]
+         (swap! pending-requests assoc request-id {:resolve resolve :reject reject})
+         (let [request-body
+               (j/lit {:header {:version 1
+                                :requestId request-id
+                                :messageType "commandRequest"
+                                :messagePurpose "commandRequest"}
+                       :body {:commandLine cmd
+                              :version 1}})]
+           (.send socket (js/JSON.stringify request-body))))))
+    (js/Promise.resolve #js {:statusCode -1
+                             :statusMessage "No client connected."})))
+
 (defonce websocket-server
-  (let [server (ws/WebSocketServer. #js {:port 3000})]
+  (let [server (new (.-WebSocketServer ws) #js {:port 3000})]
     (js/console.log "Listening on:")
     (doseq [ip (reverse (sort-by count (get-local-ip-addresses)))]
       (js/console.log (str "\t" ip ":3000")))
@@ -98,6 +116,24 @@
          (fn [socket]
            (swap! connections conj socket)
            (socket-connection socket)))))
+
+(defonce cli-server
+  (let [server (new (.-WebSocketServer ws) #js {:port 3001})]
+    (js/console.log "CLI Command server listening on: ws://127.0.0.1:3001")
+    (.on server "connection"
+         (fn [socket]
+           (.on socket "message"
+                (fn [message]
+                  (js/console.log "cli-server message:" (.toString message))
+                  (let [cmd (str message)]
+                    (-> (send-command-and-wait cmd)
+                        (.then (fn [response]
+                                 (.send socket (js/JSON.stringify response))
+                                 (.close socket)))
+                        (.catch (fn [err]
+                                  (.send socket (js/JSON.stringify #js {:error (str err)}))
+                                  (js/console.error "Error processing command:" err)
+                                  (.close socket)))))))))))
 
 (defonce watcher
   (watch #js [*file* "../sandbox.cljs"]
@@ -110,40 +146,61 @@
        (fn [error]
          (js/console.error error))))
 
-(when (some #(= "--repl" %) (.-argv js/process))
-  (let [readline (js/require "readline")
-        rl (.createInterface readline #js {:input js/process.stdin
-                                           :output js/process.stdout
-                                           :prompt "minerepl> "})
-        send-command-and-wait (fn [cmd]
-                                (if-let [socket (first @connections)]
-                                  (let [request-id (str (random-uuid))]
-                                    (js/Promise.
-                                     (fn [resolve reject]
-                                       (swap! pending-requests assoc request-id {:resolve resolve :reject reject})
-                                       (let [request-body
-                                             (j/lit {:header {:version 1
-                                                              :requestId request-id
-                                                              :messageType "commandRequest"
-                                                              :messagePurpose "commandRequest"}
-                                                     :body {:commandLine cmd
-                                                            :version 1}})]
-                                         (.send socket (js/JSON.stringify request-body))))))
-                                  (js/Promise.resolve #js {:statusCode -1
-                                                           :statusMessage "No client connected."})))]
+(def cli-options
+  [["-r" "--repl" "Start an interactive REPL"]
+   ["-h" "--help" "Show this help"]])
 
-    (js/console.log "Starting Minecraft REPL. Type a command and press enter. Press Ctrl+D to exit.")
-    (.prompt rl)
-    (.on rl "line"
-         (fn [line]
-           (let [trimmed (.trim line)]
-             (if (not= "" trimmed)
-               (-> (send-command-and-wait trimmed)
-                   (.then (fn [response]
-                            (js/console.log (js/JSON.stringify response nil 2))
-                            (.prompt rl)))
-                   (.catch (fn [err]
-                             (js/console.error "Error:" err)
-                             (.prompt rl))))
-               (.prompt rl)))))
-    (.on rl "close" (fn [] (.exit js/process 0)))))
+(defn print-usage [summary]
+  (println "Usage: npx nbb src/minerepl.cljs [options] [command]")
+  (println)
+  (println "Options:")
+  (println summary))
+
+(defn main [& args]
+  (let [{:keys [options arguments errors summary]} (cli/parse-opts args cli-options)]
+    (cond
+      errors
+      (do
+        (doseq [error errors]
+          (println error))
+        (print-usage summary)
+        (js/process.exit 1))
+
+      (:help options)
+      (do
+        (print-usage summary)
+        (js/process.exit 0))
+
+      (:repl options)
+      (let [readline (js/require "readline")
+            rl (.createInterface readline #js {:input js/process.stdin
+                                               :output js/process.stdout
+                                               :prompt "minerepl> "})]
+        (js/console.log "Starting Minecraft REPL. Type a command and press enter. Press Ctrl+D to exit.")
+        (.prompt rl)
+        (.on rl "line"
+             (fn [line]
+               (let [trimmed (.trim line)]
+                 (if (not= "" trimmed)
+                   (-> (send-command-and-wait trimmed)
+                       (.then (fn [response]
+                                (js/console.log (js/JSON.stringify response nil 2))
+                                (.prompt rl)))
+                       (.catch (fn [err]
+                                 (js/console.error "Error:" err)
+                                 (.prompt rl))))
+                   (.prompt rl)))))
+        (.on rl "close" (fn [] (.exit js/process 0))))
+
+      (not-empty arguments)
+      (let [cmd (string/join " " arguments)]
+        (-> (send-command-and-wait cmd)
+            (.then (fn [response]
+                     (js/console.log (js/JSON.stringify response nil 2))
+                     (js/process.exit 0)))
+            (.catch (fn [err]
+                      (js/console.error "Error:" err)
+                      (js/process.exit 1))))))))
+
+(defonce started
+  (apply main (get-args js/process.argv)))

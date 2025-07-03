@@ -52,3 +52,15 @@
 ; Function to register a player message callback
 (defn on-message [first-word callback]
   (swap! callbacks assoc-in [:message first-word] callback))
+
+(defn get-args [argv]
+  (not-empty (js->clj (.slice argv
+                              (if 
+                                (or
+                                  (.endsWith
+                                    (or (aget argv 1) "")
+                                    "node_modules/nbb/cli.js")
+                                  (.endsWith
+                                    (or (aget argv 1) "")
+                                    "/bin/nbb"))
+                                3 2)))))
