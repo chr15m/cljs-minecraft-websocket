@@ -1,3 +1,4 @@
+#!/usr/bin/env -S npx nbb
 (ns minerepl
   (:require
     ["os" :as os]
@@ -21,77 +22,8 @@
     js/JSON.stringify
     (.send socket)))
 
-(defn socket-message
-  [_socket packet]
-  (let [payload (js/JSON.parse packet)
-        header (j/get payload :header)
-        message-purpose (j/get header :messagePurpose)
-        request-id (j/get header :requestId)]
-
-    (js/console.log "socket-message" payload)
-
-    ; Check if it's a response to a command we sent
-    (if (= message-purpose "commandResponse")
-      (when-let [pending (get @pending-requests request-id)]
-        ; Found a matching pending request
-        ;(js/console.log "Resolving request:" request-id)
-        (let [response-body (j/get payload :body)] ; <-- Extract body
-          ; Log the body right before resolving
-          ;(js/console.log "Value passed to resolve:" response-body) ; <-- Add log
-          ; TODO: Clear any timeout associated with this request-id
-          ((:resolve pending) response-body) ; <-- Resolve with extracted body
-          (swap! pending-requests dissoc request-id))) ; Clean up
-      ; Otherwise, handle it as an event or player message
-      (let [event-name (j/get header :eventName)
-            message (j/get-in payload [:body :message])
-            message-to (j/get-in payload [:body :receiver])
-            event-callback (get-in @callbacks [:event event-name])]
-        ; handle event callbacks
-        (when event-callback (event-callback payload))
-        ; handle player message callbacks
-        (when (and (= event-name "PlayerMessage")
-                   message
-                   (= message-to "")) ; broadcasted chat message
-          (let [message-parts (.split message " ")
-                first-word (first message-parts)
-                message-callback (get-in @callbacks [:message first-word])]
-            (when message-callback
-              (message-callback message-parts payload))))))))
-
-
-(defn socket-error
-  [_socket error]
-  (js/console.error "Socket error" error))
-
-(defn start-heartbeat [socket]
-  (js/setTimeout
-    (fn []
-      (when (contains? @connections socket)
-        ;(print "Socket heartbeat")
-        (.send socket "ping")
-        (start-heartbeat socket)))
-    3000))
-
-(defn socket-connection [socket]
-  (js/console.log "connection" (boolean socket))
-  (.on socket "close"
-       (fn [] (js/console.log "socket close")
-         (swap! connections disj socket)))
-  (.on socket "message" #(socket-message socket %))
-  (.on socket "error" #(socket-error socket %))
-  (start-heartbeat socket)
-  (subscribe-to-events socket "PlayerMessage")
-  (subscribe-to-events socket "BlockPlaced"))
-
-(defn get-local-ip-addresses []
-  (let [interfaces (os/networkInterfaces)]
-    (for [[_ infos] (js/Object.entries interfaces)
-          info infos
-          :when (= (.-family info) "IPv4")]
-      (.-address info))))
-
 (defn send-command-and-wait [cmd]
-  (if-let [socket (first @connections)]
+  (if-let [socket (first (filter #(j/get % :minecraft-client) @connections))]
     (let [request-id (str (random-uuid))]
       (js/Promise.
        (fn [resolve reject]
@@ -107,39 +39,107 @@
     (js/Promise.resolve #js {:statusCode -1
                              :statusMessage "No client connected."})))
 
-(defonce websocket-server
-  (let [server (new (.-WebSocketServer ws) #js {:port 3000})]
-    (js/console.log "Listening on:")
-    (doseq [ip (reverse (sort-by count (get-local-ip-addresses)))]
-      (js/console.log (str "\t" ip ":3000")))
-    (.on server "connection"
-         (fn [socket]
-           (swap! connections conj socket)
-           (socket-connection socket)))))
+(defn start-heartbeat [socket]
+  (js/setTimeout
+    (fn []
+      (when (contains? @connections socket)
+        ;(print "Socket heartbeat")
+        (.send socket "ping")
+        (start-heartbeat socket)))
+    3000))
 
-(defonce cli-server
-  (let [server (new (.-WebSocketServer ws) #js {:port 3001})]
-    (js/console.log "CLI Command server listening on: ws://127.0.0.1:3001")
-    (.on server "connection"
-         (fn [socket]
-           (.on socket "message"
-                (fn [message]
-                  (js/console.log "cli-server message:" (.toString message))
-                  (let [cmd (str message)]
-                    (-> (send-command-and-wait cmd)
-                        (.then (fn [response]
-                                 (.send socket (js/JSON.stringify response))
-                                 (.close socket)))
-                        (.catch (fn [err]
-                                  (.send socket (js/JSON.stringify #js {:error (str err)}))
-                                  (js/console.error "Error processing command:" err)
-                                  (.close socket)))))))))))
+(defn socket-message
+  [socket packet]
+  (let [payload (js/JSON.parse packet)]
+    (if (j/get payload "minerepl-send")
+      (do
+        (j/assoc! socket :minecraft-client false)
+        (let [cmd (j/get payload "command")]
+          (js/console.log "cli-server message:" cmd)
+          (-> (send-command-and-wait cmd)
+              (.then (fn [response]
+                       (.send socket (js/JSON.stringify response))
+                       (.close socket)))
+              (.catch (fn [err]
+                        (.send socket (js/JSON.stringify #js {:error (str err)}))
+                        (js/console.error "Error processing command:" err)
+                        (.close socket))))))
+      (do
+        (let [header (j/get payload :header)
+              message-purpose (j/get header :messagePurpose)
+              request-id (j/get header :requestId)]
 
-(defonce watcher
-  (watch #js [*file* "../sandbox.cljs"]
-         (fn [_event-type filename]
-           (js/console.log "Reloading" filename)
-           (load-file filename))))
+          (js/console.log "socket-message" payload)
+
+          ; Check if it's a response to a command we sent
+          (if (= message-purpose "commandResponse")
+            (when-let [pending (get @pending-requests request-id)]
+              ; Found a matching pending request
+              ;(js/console.log "Resolving request:" request-id)
+              (let [response-body (j/get payload :body)] ; <-- Extract body
+                ; Log the body right before resolving
+                ;(js/console.log "Value passed to resolve:" response-body) ; <-- Add log
+                ; TODO: Clear any timeout associated with this request-id
+                ((:resolve pending) response-body) ; <-- Resolve with extracted body
+                (swap! pending-requests dissoc request-id))) ; Clean up
+            ; Otherwise, handle it as an event or player message
+            (let [event-name (j/get header :eventName)
+                  message (j/get-in payload [:body :message])
+                  message-to (j/get-in payload [:body :receiver])
+                  event-callback (get-in @callbacks [:event event-name])]
+              ; handle event callbacks
+              (when event-callback (event-callback payload))
+              ; handle player message callbacks
+              (when (and (= event-name "PlayerMessage")
+                         message
+                         (= message-to "")) ; broadcasted chat message
+                (let [message-parts (.split message " ")
+                      first-word (first message-parts)
+                      message-callback (get-in @callbacks [:message first-word])]
+                  (when message-callback
+                    (message-callback message-parts payload)))))))))))
+
+
+(defn socket-error
+  [_socket error]
+  (js/console.error "Socket error" error))
+
+(defn socket-connection [socket]
+  (js/console.log "connection" (boolean socket))
+  (j/assoc! socket :minecraft-client true)
+  (start-heartbeat socket)
+  (subscribe-to-events socket "PlayerMessage")
+  (subscribe-to-events socket "BlockPlaced")
+  (.on socket "close"
+       (fn [] (js/console.log "socket close")
+         (swap! connections disj socket)))
+  (.on socket "message" #(socket-message socket %))
+  (.on socket "error" #(socket-error socket %)))
+
+(defn get-local-ip-addresses []
+  (let [interfaces (os/networkInterfaces)]
+    (for [[_ infos] (js/Object.entries interfaces)
+          info infos
+          :when (= (.-family info) "IPv4")]
+      (.-address info))))
+
+(when (not= "send" (first (get-args js/process.argv)))
+  (defonce websocket-server
+    (let [server (new (.-WebSocketServer ws) #js {:port 3000})]
+      (js/console.log "Listening on:")
+      (doseq [ip (reverse (sort-by count (get-local-ip-addresses)))]
+        (js/console.log (str "\t" ip ":3000")))
+      (.on server "connection"
+           (fn [socket]
+             (swap! connections conj socket)
+             (socket-connection socket)))))
+
+
+  (defonce watcher
+    (watch #js [*file* "../sandbox.cljs"]
+           (fn [_event-type filename]
+             (js/console.log "Reloading" filename)
+             (load-file filename)))))
 
 (defonce handle-error
   (.on js/process "uncaughtException"
@@ -152,55 +152,80 @@
 
 (defn print-usage [summary]
   (println "Usage: npx nbb src/minerepl.cljs [options] [command]")
+  (println "   or: npx nbb src/minerepl.cljs send <minecraft command>")
   (println)
   (println "Options:")
   (println summary))
 
 (defn main [& args]
-  (let [{:keys [options arguments errors summary]} (cli/parse-opts args cli-options)]
-    (cond
-      errors
-      (do
-        (doseq [error errors]
-          (println error))
-        (print-usage summary)
-        (js/process.exit 1))
+  (if (= "send" (first args))
+    (let [command (string/join " " (rest args))]
+      (if (string/blank? command)
+        (do
+          (js/console.log "Usage: npx nbb src/minerepl.cljs send <command>")
+          (.exit js/process 1))
+        (let [socket (new (.-default ws) "ws://127.0.0.1:3000")]
+          (.on socket "open"
+               (fn []
+                 (let [payload (j/lit {:minerepl-send true
+                                       :command command})]
+                   (.send socket (js/JSON.stringify payload)))))
+          (.on socket "message"
+               (fn [message]
+                 (let [payload (js/JSON.parse (str message))]
+                   (when (not= (j/get-in payload [:header :messagePurpose]) "subscribe")
+                     (js/console.log (js/JSON.stringify payload nil 2))
+                     (.close socket)
+                     (.exit js/process 0)))))
+          (.on socket "error"
+               (fn [err]
+                 (js/console.error "Error connecting to minerepl. Is it running?")
+                 (js/console.error (.-message err))
+                 (.exit js/process 1))))))
+    (let [{:keys [options arguments errors summary]} (cli/parse-opts args cli-options)]
+      (cond
+        errors
+        (do
+          (doseq [error errors]
+            (println error))
+          (print-usage summary)
+          (js/process.exit 1))
 
-      (:help options)
-      (do
-        (print-usage summary)
-        (js/process.exit 0))
+        (:help options)
+        (do
+          (print-usage summary)
+          (js/process.exit 0))
 
-      (:repl options)
-      (let [readline (js/require "readline")
-            rl (.createInterface readline #js {:input js/process.stdin
-                                               :output js/process.stdout
-                                               :prompt "minerepl> "})]
-        (js/console.log "Starting Minecraft REPL. Type a command and press enter. Press Ctrl+D to exit.")
-        (.prompt rl)
-        (.on rl "line"
-             (fn [line]
-               (let [trimmed (.trim line)]
-                 (if (not= "" trimmed)
-                   (-> (send-command-and-wait trimmed)
-                       (.then (fn [response]
-                                (js/console.log (js/JSON.stringify response nil 2))
-                                (.prompt rl)))
-                       (.catch (fn [err]
-                                 (js/console.error "Error:" err)
-                                 (.prompt rl))))
+        (:repl options)
+        (let [readline (js/require "readline")
+              rl (.createInterface readline #js {:input js/process.stdin
+                                                 :output js/process.stdout
+                                                 :prompt "minerepl> "})]
+          (js/console.log "Starting Minecraft REPL. Type a command and press enter. Press Ctrl+D to exit.")
+          (.prompt rl)
+          (.on rl "line"
+               (fn [line]
+                 (let [trimmed (.trim line)]
+                   (if (not= "" trimmed)
+                     (-> (send-command-and-wait trimmed)
+                         (.then (fn [response]
+                                  (js/console.log (js/JSON.stringify response nil 2))
+                                  (.prompt rl)))
+                         (.catch (fn [err]
+                                   (js/console.error "Error:" err)
+                                   (.prompt rl))))
                    (.prompt rl)))))
-        (.on rl "close" (fn [] (.exit js/process 0))))
+          (.on rl "close" (fn [] (.exit js/process 0))))
 
-      (not-empty arguments)
-      (let [cmd (string/join " " arguments)]
-        (-> (send-command-and-wait cmd)
-            (.then (fn [response]
-                     (js/console.log (js/JSON.stringify response nil 2))
-                     (js/process.exit 0)))
-            (.catch (fn [err]
-                      (js/console.error "Error:" err)
-                      (js/process.exit 1))))))))
+        (not-empty arguments)
+        (let [cmd (string/join " " arguments)]
+          (-> (send-command-and-wait cmd)
+              (.then (fn [response]
+                       (js/console.log (js/JSON.stringify response nil 2))
+                       (js/process.exit 0)))
+              (.catch (fn [err]
+                        (js/console.error "Error:" err)
+                        (js/process.exit 1)))))))))
 
 (defonce started
   (apply main (get-args js/process.argv)))
