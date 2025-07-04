@@ -6,5 +6,8 @@
   },
   "scripts": {
     "watch": "npx nbb minerepl.cljs"
+  },
+  "bin": {
+    "minerepl": "./minerepl.cljs"
   }
 }
