@@ -1,8 +1,11 @@
 (ns sandbox
-  {:clj-kondo/config '{:lint-as {promesa.core/let clojure.core/let}}}
+  {:clj-kondo/config '{:lint-as {promesa.core/let clojure.core/let
+                                 promesa.core/loop clojure.core/loop
+                                 promesa.core/recur clojure.core/recur}}}
   (:require
     [common :refer [send-command on on-message]]
-    [promesa.core :as p]))
+    [promesa.core :as p]
+    [applied-science.js-interop :as j]))
 
 ; create an emerald block 2 blocks away from the player
 ; (send-command "setblock ~2 ~2 ~2 emerald_block")
@@ -10,6 +13,12 @@
 ; Example using promesa to wait for the command response
 #_ (p/let [response (send-command "setblock ~2 ~0 ~2 minecraft:cobblestone")]
      (js/console.log "Cobblestone command response:" response))
+
+; Get the player's current position
+#_ (p/let [player (send-command "tp @p ~ ~ ~")
+           pos (j/get player :destination)]
+     (js/console.log "Player position:" pos))
+
 
 ; draw a wall of emeralds near the player
 #_ (doseq [x (range 10)
@@ -44,4 +53,4 @@
 ; if the player places a block
 (on "BlockPlaced"
     (fn [payload]
-      (js/console.log (aget payload "body" "player" "position"))))
+      (js/console.log "BlockPlaced event, player pos:" (aget payload "body" "player" "position"))))
