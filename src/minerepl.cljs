@@ -164,14 +164,11 @@
            (fn [socket]
              (swap! connections conj socket)
              (socket-connection socket)))))
-
-
-  (when *file*
-    (defonce watcher
-      (watch #js [*file* "../sandbox.cljs"]
-             (fn [_event-type filename]
-               (js/console.log "Reloading" filename)
-               (load-file filename))))))
+  (defonce watcher
+    (watch #js [*file* "../sandbox.cljs"]
+           (fn [_event-type filename]
+             (js/console.log "Reloading" filename)
+             (load-file filename)))))
 
 (defonce handle-error
   (.on js/process "uncaughtException"
