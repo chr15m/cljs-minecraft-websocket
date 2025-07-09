@@ -1,5 +1,7 @@
 (ns common
-  (:require [applied-science.js-interop :as j]))
+  (:require
+    [applied-science.js-interop :as j]
+    [clojure.string :as string]))
 
 ; Store active websocket connections
 (defonce connections
@@ -16,7 +18,7 @@
 ; Function to send a command string to all connected clients
 ; Returns a promise that resolves with the command response body
 (defn send-command [& args]
-  (let [command (apply str args)
+  (let [command (string/join " " (map str args))
         request-id (str (random-uuid)) ; Generate unique ID
         payload (j/lit
                   {:header
