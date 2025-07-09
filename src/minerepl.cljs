@@ -1,4 +1,4 @@
-#!/usr/bin/env -S npx nbb
+#!/usr/bin/env -S npx nbb --classpath ./node_modules/minerepl/
 (ns minerepl
   (:require
     ["os" :as os]
@@ -8,7 +8,24 @@
     ["node-watch$default" :as watch]
     ["ws" :as ws]
     [nbb.core :refer [load-file *file*]]
-    [common :refer [connections callbacks pending-requests get-args]]))
+    [common :refer [connections callbacks pending-requests]]))
+
+(defn get-args [argv]
+  (if *file*
+    (let [argv-vec (js->clj argv)
+          script-idx (.indexOf argv-vec *file*)]
+      (when (>= script-idx 0)
+        (not-empty (subvec argv-vec (inc script-idx)))))
+    (not-empty (js->clj (.slice argv
+                                (if
+                                  (or
+                                    (.endsWith
+                                      (or (aget argv 1) "")
+                                      "node_modules/nbb/cli.js")
+                                    (.endsWith
+                                      (or (aget argv 1) "")
+                                      "/bin/nbb"))
+                                  3 2))))))
 
 (defn subscribe-to-events [socket event-name]
   (->>
@@ -149,11 +166,12 @@
              (socket-connection socket)))))
 
 
-  (defonce watcher
-    (watch #js [*file* "../sandbox.cljs"]
-           (fn [_event-type filename]
-             (js/console.log "Reloading" filename)
-             (load-file filename)))))
+  (when *file*
+    (defonce watcher
+      (watch #js [*file* "../sandbox.cljs"]
+             (fn [_event-type filename]
+               (js/console.log "Reloading" filename)
+               (load-file filename))))))
 
 (defonce handle-error
   (.on js/process "uncaughtException"
