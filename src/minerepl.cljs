@@ -64,40 +64,39 @@
                         (.send socket (js/JSON.stringify #js {:error (str err)}))
                         (js/console.error "Error processing command:" err)
                         (.close socket))))))
-      (do
-        (let [header (j/get payload :header)
-              message-purpose (j/get header :messagePurpose)
-              request-id (j/get header :requestId)]
+      (let [header (j/get payload :header)
+            message-purpose (j/get header :messagePurpose)
+            request-id (j/get header :requestId)]
 
-          (js/console.log "socket-message" payload)
+        (js/console.log "socket-message" payload)
 
-          ; Check if it's a response to a command we sent
-          (if (= message-purpose "commandResponse")
-            (when-let [pending (get @pending-requests request-id)]
-              ; Found a matching pending request
-              ;(js/console.log "Resolving request:" request-id)
-              (let [response-body (j/get payload :body)] ; <-- Extract body
-                ; Log the body right before resolving
-                ;(js/console.log "Value passed to resolve:" response-body) ; <-- Add log
-                ; TODO: Clear any timeout associated with this request-id
-                ((:resolve pending) response-body) ; <-- Resolve with extracted body
-                (swap! pending-requests dissoc request-id))) ; Clean up
-            ; Otherwise, handle it as an event or player message
-            (let [event-name (j/get header :eventName)
-                  message (j/get-in payload [:body :message])
-                  message-to (j/get-in payload [:body :receiver])
-                  event-callback (get-in @callbacks [:event event-name])]
-              ; handle event callbacks
-              (when event-callback (event-callback payload))
-              ; handle player message callbacks
-              (when (and (= event-name "PlayerMessage")
-                         message
-                         (= message-to "")) ; broadcasted chat message
-                (let [message-parts (.split message " ")
-                      first-word (first message-parts)
-                      message-callback (get-in @callbacks [:message first-word])]
-                  (when message-callback
-                    (message-callback message-parts payload)))))))))))
+        ; Check if it's a response to a command we sent
+        (if (= message-purpose "commandResponse")
+          (when-let [pending (get @pending-requests request-id)]
+            ; Found a matching pending request
+            ;(js/console.log "Resolving request:" request-id)
+            (let [response-body (j/get payload :body)] ; <-- Extract body
+              ; Log the body right before resolving
+              ;(js/console.log "Value passed to resolve:" response-body) ; <-- Add log
+              ; TODO: Clear any timeout associated with this request-id
+              ((:resolve pending) response-body) ; <-- Resolve with extracted body
+              (swap! pending-requests dissoc request-id))) ; Clean up
+          ; Otherwise, handle it as an event or player message
+          (let [event-name (j/get header :eventName)
+                message (j/get-in payload [:body :message])
+                message-to (j/get-in payload [:body :receiver])
+                event-callback (get-in @callbacks [:event event-name])]
+            ; handle event callbacks
+            (when event-callback (event-callback payload))
+            ; handle player message callbacks
+            (when (and (= event-name "PlayerMessage")
+                       message
+                       (= message-to "")) ; broadcasted chat message
+              (let [message-parts (.split message " ")
+                    first-word (first message-parts)
+                    message-callback (get-in @callbacks [:message first-word])]
+                (when message-callback
+                  (message-callback message-parts payload))))))))))
 
 
 (defn socket-error
