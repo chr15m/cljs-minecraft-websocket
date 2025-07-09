@@ -163,21 +163,19 @@
           :when (= (.-family info) "IPv4")]
       (.-address info))))
 
-(when (not= "send" (first (get-args js/process.argv)))
-  (defonce websocket-server
-    (let [server (new (.-WebSocketServer ws) #js {:port 3000})]
-      (js/console.log "Listening on:")
-      (doseq [ip (reverse (sort-by count (get-local-ip-addresses)))]
-        (js/console.log (str "\t" ip ":3000")))
-      (.on server "connection"
-           (fn [socket]
-             (swap! connections conj socket)
-             (socket-connection socket)))))
-  (defonce watcher
-    (watch (clj->js (filter identity [self "../sandbox.cljs"]))
-           (fn [_event-type filename]
-             (js/console.log "Reloading" filename)
-             (load-file filename)))))
+(defn start-server-and-watch []
+  (let [server (new (.-WebSocketServer ws) #js {:port 3000})]
+    (js/console.log "Listening on:")
+    (doseq [ip (reverse (sort-by count (get-local-ip-addresses)))]
+      (js/console.log (str "\t" ip ":3000")))
+    (.on server "connection"
+         (fn [socket]
+           (swap! connections conj socket)
+           (socket-connection socket))))
+  (watch (clj->js (filter identity [self "../sandbox.cljs"]))
+         (fn [_event-type filename]
+           (js/console.log "Reloading" filename)
+           (load-file filename))))
 
 (defonce handle-error
   (.on js/process "uncaughtException"
@@ -222,6 +220,8 @@
                  (js/console.error (.-message err))
                  (.exit js/process 1))))))
     (let [{:keys [options arguments errors summary]} (cli/parse-opts args cli-options)]
+      (when (and (not errors) (not (:help options)))
+        (start-server-and-watch))
       (cond
         errors
         (do
