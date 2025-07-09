@@ -2,7 +2,7 @@
 (ns minerepl
   (:require
     ["os" :as os]
-    ["fs" :refer [realpathSync]]
+    ["fs" :refer [realpathSync existsSync]]
     [clojure.string :as string]
     [clojure.tools.cli :as cli]
     [applied-science.js-interop :as j]
@@ -172,11 +172,14 @@
          (fn [socket]
            (swap! connections conj socket)
            (socket-connection socket))))
-  (js/console.log "Watching" watch-file)
-  (watch (clj->js (filter identity [self watch-file]))
-         (fn [_event-type filename]
-           (js/console.log "Reloading" filename)
-           (load-file filename))))
+  (when (existsSync watch-file)
+    (js/console.log "Loading" watch-file)
+    (load-file watch-file)
+    (js/console.log "Watching" watch-file)
+    (watch (clj->js (filter identity [self watch-file]))
+           (fn [_event-type filename]
+             (js/console.log "Reloading" filename)
+             (load-file filename)))))
 
 (defonce handle-error
   (.on js/process "uncaughtException"
