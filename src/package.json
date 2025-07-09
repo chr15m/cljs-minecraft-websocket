@@ -5,8 +5,12 @@
     "node-watch": "^0.7.4",
     "ws": "^8.18.0"
   },
+  "devDependencies": {
+    "cljs-shrinkwrap": "^0.0.7"
+  },
   "scripts": {
-    "watch": "npx nbb minerepl.cljs"
+    "watch": "npx nbb minerepl.cljs",
+    "build": "npx shrinkwrap minerepl.cljs minerepl"
   },
   "bin": {
     "minerepl": "./minerepl.cljs"
