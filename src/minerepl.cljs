@@ -163,7 +163,7 @@
           :when (= (.-family info) "IPv4")]
       (.-address info))))
 
-(defn start-server-and-watch []
+(defn start-server-and-watch [watch-file]
   (let [server (new (.-WebSocketServer ws) #js {:port 3000})]
     (js/console.log "Listening on:")
     (doseq [ip (reverse (sort-by count (get-local-ip-addresses)))]
@@ -172,7 +172,8 @@
          (fn [socket]
            (swap! connections conj socket)
            (socket-connection socket))))
-  (watch (clj->js (filter identity [self "../sandbox.cljs"]))
+  (js/console.log "Watching" watch-file)
+  (watch (clj->js (filter identity [self watch-file]))
          (fn [_event-type filename]
            (js/console.log "Reloading" filename)
            (load-file filename))))
@@ -219,9 +220,16 @@
                  (js/console.error "Error connecting to minerepl. Is it running?")
                  (js/console.error (.-message err))
                  (.exit js/process 1))))))
-    (let [{:keys [options arguments errors summary]} (cli/parse-opts args cli-options)]
+    (let [first-arg (first args)
+          watch-file (if (and first-arg (string/ends-with? first-arg ".cljs"))
+                       first-arg
+                       "../sandbox.cljs")
+          processed-args (if (= watch-file "../sandbox.cljs")
+                           args
+                           (rest args))
+          {:keys [options arguments errors summary]} (cli/parse-opts processed-args cli-options)]
       (when (and (not errors) (not (:help options)))
-        (start-server-and-watch))
+        (start-server-and-watch watch-file))
       (cond
         errors
         (do
