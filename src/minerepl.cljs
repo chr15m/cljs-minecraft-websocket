@@ -2,6 +2,7 @@
 (ns minerepl
   (:require
     ["os" :as os]
+    ["fs" :refer [realpathSync]]
     [clojure.string :as string]
     [clojure.tools.cli :as cli]
     [applied-science.js-interop :as j]
@@ -10,10 +11,18 @@
     [nbb.core :refer [load-file *file*]]
     [common :refer [connections callbacks pending-requests]]))
 
+(def self *file*)
+
 (defn get-args [argv]
   (if *file*
-    (let [argv-vec (js->clj argv)
+    (let [argv-vec (mapv
+                     #(try (realpathSync %)
+                           (catch :default _e %))
+                     (js->clj argv))
           script-idx (.indexOf argv-vec *file*)]
+      ;(print "script-idx" script-idx)
+      ;(print argv-vec)
+      ;(print *file*)
       (when (>= script-idx 0)
         (not-empty (subvec argv-vec (inc script-idx)))))
     (not-empty (js->clj (.slice argv
@@ -165,7 +174,7 @@
              (swap! connections conj socket)
              (socket-connection socket)))))
   (defonce watcher
-    (watch #js [*file* "../sandbox.cljs"]
+    (watch (clj->js (filter identity [self "../sandbox.cljs"]))
            (fn [_event-type filename]
              (js/console.log "Reloading" filename)
              (load-file filename)))))
@@ -187,6 +196,7 @@
   (println summary))
 
 (defn main [& args]
+  ;(print "args" args)
   (if (= "send" (first args))
     (let [command (string/join " " (rest args))]
       (if (string/blank? command)
