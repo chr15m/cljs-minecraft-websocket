@@ -9,7 +9,7 @@
     ["node-watch$default" :as watch]
     ["ws" :as ws]
     [nbb.core :refer [load-file *file*]]
-    [common :refer [connections callbacks pending-requests]]))
+    [common :refer [connections callbacks pending-requests send-command-and-wait]]))
 
 (def self *file*)
 
@@ -47,25 +47,6 @@
        :body {:eventName event-name}})
     js/JSON.stringify
     (.send socket)))
-
-(defn send-command-and-wait [cmd]
-  (if-let [socket (first (filter #(j/get % :minecraft-client) @connections))]
-    (let [request-id (str (random-uuid))]
-      (js/Promise.
-       (fn [resolve reject]
-         (swap! pending-requests assoc request-id {:resolve resolve
-                                                    :reject reject
-                                                    :query-target? (string/starts-with? cmd "querytarget")})
-         (let [request-body
-               (j/lit {:header {:version 1
-                                :requestId request-id
-                                :messageType "commandRequest"
-                                :messagePurpose "commandRequest"}
-                       :body {:commandLine cmd
-                              :version 1}})]
-           (.send socket (js/JSON.stringify request-body))))))
-    (js/Promise.resolve #js {:statusCode -1
-                             :statusMessage "No client connected."})))
 
 (defn start-heartbeat [socket]
   (js/setTimeout

@@ -17,35 +17,30 @@
 
 ; Function to send a command string to all connected clients
 ; Returns a promise that resolves with the command response body
+(defn send-command-and-wait [cmd]
+  (if (seq (filter #(j/get % :minecraft-client) @connections))
+    (let [request-id (str (random-uuid))]
+      (js/Promise.
+        (fn [resolve reject]
+          (swap! pending-requests assoc request-id
+                 {:resolve resolve
+                  :reject reject
+                  :query-target? (string/starts-with? cmd "querytarget")})
+          (let [request-body
+                (j/lit {:header {:version 1
+                                 :requestId request-id
+                                 :messageType "commandRequest"
+                                 :messagePurpose "commandRequest"}
+                        :body {:commandLine cmd
+                               :version 1}})]
+            (doseq [socket (filter #(j/get % :minecraft-client) @connections)]
+              (.send socket (js/JSON.stringify request-body)))))))
+    (js/Promise.resolve #js {:statusCode -1
+                             :statusMessage "No client connected."})))
+
 (defn send-command [& args]
-  (let [command (string/join " " (map str args))
-        request-id (str (random-uuid)) ; Generate unique ID
-        payload (j/lit
-                  {:header
-                   {:version 1
-                    :requestId request-id ; Include ID in header
-                    :messageType "commandRequest"
-                    :messagePurpose "commandRequest"}
-                   :body
-                   {:version 1
-                    :commandLine command
-                    :origin {:type "player"}}})
-        json-payload (js/JSON.stringify payload)]
-
-    ; Create and return a promise
-    (js/Promise.
-     (fn [resolve reject]
-       ; Store the resolve/reject functions
-       (swap! pending-requests assoc request-id {:resolve resolve :reject reject})
-
-       ; TODO: Add a timeout mechanism here using js/setTimeout
-       ; that calls reject and removes the request-id after a delay.
-
-       ; Send the command to all connections
-       ; Note: This assumes the first connection's response is sufficient.
-       ; For multiple clients, this might need refinement.
-       (doseq [socket @connections]
-         (.send socket json-payload))))))
+  (let [command (string/join " " (map str args))]
+    (send-command-and-wait command)))
 
 ; Function to register an event callback
 (defn on [event-name callback]
