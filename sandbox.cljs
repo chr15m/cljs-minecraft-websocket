@@ -15,10 +15,10 @@
      (js/console.log "Cobblestone command response:" response))
 
 ; Get the player's current position
-#_ (p/let [player (send-command "tp @p ~ ~ ~")
-           pos (j/get player :destination)]
+#_ (p/let [result (send-command "querytarget @p")
+           pos (j/get-in result [:details 0 :position])]
+     ; pos = { x: 351.5, y: 74.62001037597656, z: -152.5 }
      (js/console.log "Player position:" pos))
-
 
 ; draw a wall of emeralds near the player
 #_ (doseq [x (range 10)
@@ -35,7 +35,7 @@
 ; if the player types a chat message "epole"
 (on-message
   "epole"
-  (fn [_message]
+  (fn [_message _payload]
     ; build an emerald pole next to the player
     (doseq [z (range 10)]
       (send-command "setblock ~" 2 " ~" z "~" 0 " emerald_block"))))
@@ -43,7 +43,7 @@
 ; if the player types a chat message "hole"
 (on-message
   "hole"
-  (fn []
+  (fn [_message _payload]
     ; dig a big hole
     (doseq [x (range -2 3)
             y (range -2 3)
@@ -53,4 +53,4 @@
 ; if the player places a block
 (on "BlockPlaced"
     (fn [payload]
-      (js/console.log "BlockPlaced event, player pos:" (aget payload "body" "player" "position"))))
+      (js/console.log "BlockPlaced event, player pos:" (j/get-in payload [:body :player :position]))))
