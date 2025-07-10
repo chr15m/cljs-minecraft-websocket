@@ -53,7 +53,9 @@
     (let [request-id (str (random-uuid))]
       (js/Promise.
        (fn [resolve reject]
-         (swap! pending-requests assoc request-id {:resolve resolve :reject reject})
+         (swap! pending-requests assoc request-id {:resolve resolve
+                                                    :reject reject
+                                                    :query-target? (string/starts-with? cmd "querytarget")})
          (let [request-body
                (j/lit {:header {:version 1
                                 :requestId request-id
@@ -101,12 +103,17 @@
           (when-let [pending (get @pending-requests request-id)]
             ; Found a matching pending request
             ;(js/console.log "Resolving request:" request-id)
-            (let [response-body (j/get payload :body)] ; <-- Extract body
-              ; Log the body right before resolving
-              ;(js/console.log "Value passed to resolve:" response-body) ; <-- Add log
-              ; TODO: Clear any timeout associated with this request-id
-              ((:resolve pending) response-body) ; <-- Resolve with extracted body
-              (swap! pending-requests dissoc request-id))) ; Clean up
+            (let [response-body (j/get payload :body)]
+              (when (:query-target? pending)
+                (let [details (j/get response-body :details)]
+                  (when (and (string? details) (not (string/blank? details)))
+                    (try
+                      (j/assoc! response-body :details (js/JSON.parse details))
+                      (catch :default _e
+                        ; if parsing fails, we just leave details as a string
+                        nil)))))
+              ((:resolve pending) response-body)
+              (swap! pending-requests dissoc request-id)))
           ; Otherwise, handle it as an event or player message
           (let [event-name (j/get header :eventName)
                 message (j/get-in payload [:body :message])
